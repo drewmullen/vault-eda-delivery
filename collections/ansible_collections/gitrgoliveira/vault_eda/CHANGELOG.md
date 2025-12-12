@@ -7,6 +7,20 @@ All notable changes to this collection will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2025-12-12
+
+### Changed
+
+- Upgraded ansible dependency from 12.0.0 to 12.2.0.
+- Reorganized rulebook files into dedicated `rulebooks/` directory for improved project structure.
+- Enhanced HCP Vault rulebook with comprehensive documentation header explaining event patterns and WebSocket connection behavior.
+- Clarified vault-eda-rulebook documentation to explicitly reference "HashiCorp Vault Enterprise".
+
+### Documentation
+
+- Improved rulebook documentation with clearer context about supported event types (`kv-v1/*`, `kv-v2/*`, `database/*`).
+- Added detailed header comments to HCP Vault rulebook explaining WebSocket connection handling.
+
 ## [0.1.1] - 2025-09-25
 
 ### Documentation

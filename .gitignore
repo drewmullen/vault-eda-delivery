@@ -7,3 +7,6 @@
 .github/instructions/style.instructions.md
 RELEASE.md
 hcp.env
+
+.DS_Store
+.mypy_cache
