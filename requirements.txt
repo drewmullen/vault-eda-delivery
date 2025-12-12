@@ -12,11 +12,11 @@ aiohttp==3.12.15
     #   ansible-rulebook
 aiosignal==1.4.0
     # via aiohttp
-ansible==12.0.0
+ansible==12.2.0
     # via -r requirements.in
 ansible-compat==25.8.1
     # via ansible-lint
-ansible-core==2.19.2
+ansible-core==2.19.4
     # via
     #   ansible
     #   ansible-compat
