@@ -82,6 +82,90 @@ fi
 
 echo "   Rulebook ID: ${RULEBOOK_ID}"
 
+# Step 1.5: Create Vault Event Stream credential type
+echo "2.5. Checking for Vault Event Stream credential type..."
+CRED_TYPE_LIST=$(curl -s -u ${USERNAME}:${PASSWORD} "${API_URL}/api/eda/v1/credential-types/?name=HashiCorp+Vault+Event+Stream+Credential")
+CRED_TYPE_ID=$(echo ${CRED_TYPE_LIST} | python3 -c "import sys, json; results = json.load(sys.stdin).get('results', []); print(results[0]['id'] if results else '')" 2>/dev/null || echo "")
+
+if [ -z "$CRED_TYPE_ID" ]; then
+  echo "   Creating Vault Event Stream credential type..."
+  CRED_TYPE_CREATE=$(curl -s -u ${USERNAME}:${PASSWORD} \
+    -X POST "${API_URL}/api/eda/v1/credential-types/" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "name": "HashiCorp Vault Event Stream Credential",
+      "description": "Credential type for connecting to HashiCorp Vault event streams. Provides VAULT_ADDR and VAULT_TOKEN environment variables for vault_events source plugin.",
+      "inputs": {
+        "fields": [
+          {
+            "id": "vault_addr",
+            "label": "Vault Address",
+            "type": "string",
+            "help_text": "The URL of the Vault server (e.g., http://127.0.0.1:8200)"
+          },
+          {
+            "id": "vault_token",
+            "label": "Vault Token",
+            "type": "string",
+            "secret": true,
+            "help_text": "Authentication token for Vault with permissions to subscribe to events"
+          }
+        ],
+        "required": ["vault_addr", "vault_token"]
+      },
+      "injectors": {
+        "env": {
+          "VAULT_ADDR": "{{ vault_addr }}",
+          "VAULT_TOKEN": "{{ vault_token }}"
+        }
+      }
+    }')
+  CRED_TYPE_ID=$(echo ${CRED_TYPE_CREATE} | python3 -c "import sys, json; print(json.load(sys.stdin).get('id', ''))" 2>/dev/null || echo "")
+  
+  if [ -z "$CRED_TYPE_ID" ]; then
+    echo "   Note: Could not create credential type. Response:"
+    echo ${CRED_TYPE_CREATE} | python3 -m json.tool 2>/dev/null || echo ${CRED_TYPE_CREATE}
+  else
+    echo "   Credential type created with ID: ${CRED_TYPE_ID}"
+  fi
+else
+  echo "   Using existing credential type with ID: ${CRED_TYPE_ID}"
+fi
+
+# Step 1.6: Create Vault Event Stream credential using the credential type
+if [ ! -z "$CRED_TYPE_ID" ]; then
+  echo "2.6. Checking for Vault Event Stream credential..."
+  CRED_LIST=$(curl -s -u ${USERNAME}:${PASSWORD} "${API_URL}/api/eda/v1/eda-credentials/?name=Vault+Event+Stream+Credentials")
+  CRED_ID=$(echo ${CRED_LIST} | python3 -c "import sys, json; results = json.load(sys.stdin).get('results', []); print(results[0]['id'] if results else '')" 2>/dev/null || echo "")
+
+  if [ -z "$CRED_ID" ]; then
+    echo "   Creating Vault Event Stream credential..."
+    CRED_CREATE=$(curl -s -u ${USERNAME}:${PASSWORD} \
+      -X POST "${API_URL}/api/eda/v1/eda-credentials/" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"name\": \"Vault Event Stream Credentials\",
+        \"description\": \"Credentials for Vault event stream connection\",
+        \"credential_type_id\": ${CRED_TYPE_ID},
+        \"organization_id\": ${ORG_ID},
+        \"inputs\": {
+          \"vault_addr\": \"${VAULT_ADDR:-http://host.docker.internal:8200}\",
+          \"vault_token\": \"${VAULT_TOKEN:-myroot}\"
+        }
+      }")
+    CRED_ID=$(echo ${CRED_CREATE} | python3 -c "import sys, json; print(json.load(sys.stdin).get('id', ''))" 2>/dev/null || echo "")
+    
+    if [ -z "$CRED_ID" ]; then
+      echo "   Note: Could not create credential. Response:"
+      echo ${CRED_CREATE} | python3 -m json.tool 2>/dev/null || echo ${CRED_CREATE}
+    else
+      echo "   Credential created with ID: ${CRED_ID}"
+    fi
+  else
+    echo "   Using existing credential with ID: ${CRED_ID}"
+  fi
+fi
+
 # Step 2: Get the default decision environment
 echo "3. Getting decision environment..."
 DE_RESPONSE=$(curl -s -u ${USERNAME}:${PASSWORD} "${API_URL}/api/eda/v1/decision-environments/")
