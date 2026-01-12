@@ -23,7 +23,36 @@ Before you begin, ensure you have the following components installed and configu
 
 ## Quick start
 
-This section guides you through the fastest way to get the project running. The `make` commands automate the setup and execution.
+Choose your preferred approach:
+
+### Option A: Web UI (Recommended for visualization)
+
+**Prerequisites:** Docker Desktop required for UI. See [EDA-SERVER.md](EDA-SERVER.md) for full details.
+
+```bash
+# 1. Set environment variables
+export VAULT_ADDR=http://127.0.0.1:8200
+export VAULT_TOKEN=myroot
+
+# 2. Start Vault
+make start-vault
+
+# 3. Start EDA Server with web UI
+make start-eda-server
+
+# 4. Create activation (shows up in UI immediately)
+make create-eda-activation
+
+# 5. Access the UI
+# Open https://localhost:8443 in your browser
+# Login: admin / testpass
+```
+
+**What you get:** Visual interface, activation management, event history, and audit logs.
+
+### Option B: CLI (Lightweight, no Docker required)
+
+**Prerequisites:** Python 3.7+, Java (for ansible-rulebook)
 
 1. **Set environment variables**:
    Export the address of your Vault server and an authentication token.

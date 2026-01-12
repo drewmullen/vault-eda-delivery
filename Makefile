@@ -1,4 +1,4 @@
-.PHONY: help install-vault start-vault stop-vault status-vault run-rulebook run-rulebook-bg stop-rulebook test-events clean setup-env compile-deps build-collection publish-collection release-collection
+.PHONY: help install-vault start-vault stop-vault status-vault run-rulebook run-rulebook-bg stop-rulebook test-events clean setup-env compile-deps build-collection publish-collection release-collection start-eda-server stop-eda-server status-eda-server logs-eda-server clean-eda-server create-eda-activation
 
 # Default target
 help:
@@ -17,13 +17,26 @@ help:
 	@echo "  publish-collection - Publish collection to Ansible Galaxy"
 	@echo "  release-collection - Build and publish collection"
 	@echo ""
+	@echo "EDA Server (Optional UI):"
+	@echo "  start-eda-server     - Start EDA Server with UI (requires Docker)"
+	@echo "  create-eda-activation - Create activation via API (visible in UI)"
+	@echo "  stop-eda-server      - Stop EDA Server"
+	@echo "  status-eda-server    - Check EDA Server status"
+	@echo "  logs-eda-server      - View EDA Server logs"
+	@echo "  clean-eda-server     - Stop and remove all EDA Server data"
+	@echo ""
 	@echo "Environment Variables:"
 	@echo "  VAULT_ADDR       - Vault server URL (default: http://127.0.0.1:8200)"
 	@echo "  VAULT_TOKEN      - Vault authentication token (default: myroot)"
 	@echo ""
-	@echo "Quick start:"
+	@echo "Quick start (CLI only):"
 	@echo "  export VAULT_ADDR=http://127.0.0.1:8200 VAULT_TOKEN=myroot"
 	@echo "  make compile-deps && make setup-env && make start-vault && make run-rulebook-bg && make test-events"
+	@echo ""
+	@echo "Quick start (with UI):"
+	@echo "  export VAULT_ADDR=http://127.0.0.1:8200 VAULT_TOKEN=myroot"
+	@echo "  make start-vault && make start-eda-server"
+	@echo "  Access UI at: https://localhost:8443 (default credentials: admin/testpass)"
 
 # Set up Python environment and dependencies
 setup-env:
@@ -162,3 +175,64 @@ publish-collection:
 
 release-collection: build-collection publish-collection
 	@echo "Collection release complete!"
+
+# EDA Server targets (optional UI)
+start-eda-server:
+	@echo "Starting EDA Server with UI..."
+	@if ! command -v docker > /dev/null 2>&1; then \
+		echo "Error: Docker is required but not installed."; \
+		echo "Please install Docker Desktop: https://www.docker.com/products/docker-desktop"; \
+		exit 1; \
+	fi
+	@./scripts/setup-eda-nginx.sh
+	@export VAULT_ADDR=$${VAULT_ADDR:-http://host.docker.internal:8200} && \
+	export VAULT_TOKEN=$${VAULT_TOKEN:-myroot} && \
+	docker compose up -d
+	@echo ""
+	@echo "EDA Server starting..."
+	@echo "This may take a few minutes on first run (downloading images)."
+	@echo "Waiting for services to be ready..."
+	@for i in 1 2 3 4 5 6; do \
+		if docker compose exec -T eda-api curl -s http://localhost:8000/_healthz > /dev/null 2>&1; then \
+			break; \
+		fi; \
+		echo "  Waiting for API ($$i/6)..."; \
+		sleep 5; \
+	done
+	@echo "Setting up admin user..."
+	@docker compose exec -T eda-api bash -c "echo \"from django.contrib.auth import get_user_model; User = get_user_model(); u, created = User.objects.get_or_create(username='admin', defaults={'email': 'admin@test.com', 'is_superuser': True}); u.set_password('testpass'); u.is_superuser = True; u.save(); print('Admin user configured')\" | aap-eda-manage shell" 2>&1 | grep -q "Admin user configured" && echo "  Admin user ready" || echo "  Note: Run 'make status-eda-server' to check if services are ready"
+	@echo ""
+	@echo "Services:"
+	@echo "  - EDA UI:  https://localhost:8443"
+	@echo "  - EDA API: http://localhost:8000"
+	@echo ""
+	@echo "Default credentials: admin / testpass"
+	@echo ""
+	@echo "Check status with: make status-eda-server"
+	@echo "View logs with:    make logs-eda-server"
+
+stop-eda-server:
+	@echo "Stopping EDA Server..."
+	@docker compose down
+	@echo "EDA Server stopped"
+
+status-eda-server:
+	@echo "EDA Server status:"
+	@docker compose ps
+
+logs-eda-server:
+	@docker compose logs -f
+
+clean-eda-server:
+	@echo "Stopping and removing all EDA Server data..."
+	@docker compose down -v
+	@echo "EDA Server cleaned up (all data removed)"
+
+create-eda-activation:
+	@echo "Creating EDA activation via API..."
+	@if ! docker compose ps | grep -q "eda-api.*Up"; then \
+		echo "Error: EDA Server is not running."; \
+		echo "Start it with: make start-eda-server"; \
+		exit 1; \
+	fi
+	@./scripts/create-eda-activation.sh

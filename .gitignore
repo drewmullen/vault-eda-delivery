@@ -10,3 +10,7 @@ hcp.env
 
 .DS_Store
 .mypy_cache
+
+# EDA Server (docker-compose)
+postgres_data/
+nginx/

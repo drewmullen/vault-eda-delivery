@@ -1,0 +1,166 @@
+x-environment: &common-env
+  EDA_DB_HOST: postgres
+  EDA_MODE: development
+  DJANGO_SETTINGS_MODULE: aap_eda.settings.default
+  EDA_ALLOWED_HOSTS: '*'
+  EDA_CSRF_TRUSTED_ORIGINS: 'https://localhost:8443,http://localhost:8443,https://127.0.0.1:8443'
+  EDA_DEPLOYMENT_TYPE: docker
+  EDA_WEBSOCKET_BASE_URL: ws://eda-ws:8000
+  EDA_WEBSOCKET_SSL_VERIFY: "no"
+  EDA_PODMAN_SOCKET_URL: tcp://podman:8888
+  EDA_CONTROLLER_URL: ${EDA_CONTROLLER_URL:-https://localhost}
+  EDA_CONTROLLER_TOKEN: ${EDA_CONTROLLER_TOKEN:-changeme}
+  EDA_CONTROLLER_SSL_VERIFY: "no"
+  EDA_PROTOCOL: http
+  EDA_HOST: eda-api:8000
+  EDA_SERVER: http://eda-api:8000
+  EDA_ANSIBLE_RULEBOOK_LOG_LEVEL: '-v'
+  EDA_CONTAINER_NAME_PREFIX: eda
+  EDA_ACTIVATION_RESTART_SECONDS_ON_COMPLETE: 5
+  EDA_ACTIVATION_RESTART_SECONDS_ON_FAILURE: 5
+  EDA_SECRET_KEY: 'insecure-development-key-change-in-production'
+  EDA_DEBUG: "True"
+  EDA_DB_PASSWORD: secret
+  EDA_RULEBOOK_WORKER_QUEUES: "activation"
+  EDA_ALLOW_LOCAL_RESOURCE_MANAGEMENT: "True"
+  EDA_ALLOW_LOCAL_ASSIGNING_JWT_ROLES: "True"
+  EDA_ALLOW_SHARED_RESOURCE_CUSTOM_ROLES: "True"
+  EDA_DEFAULT_QUEUE_TIMEOUT: 300
+  EDA_DEFAULT_RULEBOOK_QUEUE_TIMEOUT: 120
+  EDA_SERVER_UUID: vault-eda-delivery-server
+  EDA_PG_NOTIFY_DSN_SERVER: "host=postgres port=5432 dbname=eda user=postgres password=secret"
+  EDA_WEBHOOK_HOST: eda-api:8000
+  EDA_WEBHOOK_SERVER: http://eda-api:8000
+  # Pass through Vault environment variables
+  VAULT_ADDR: ${VAULT_ADDR:-http://host.docker.internal:8200}
+  VAULT_TOKEN: ${VAULT_TOKEN:-myroot}
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: eda
+    ports:
+      - '5432:5432'
+    volumes:
+      - 'postgres_data:/var/lib/postgresql/data'
+    healthcheck:
+      test: [ 'CMD', 'pg_isready', '-U', 'postgres' ]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  podman:
+    image: quay.io/containers/podman:v4
+    privileged: true
+    command: podman system service --time=0 tcp://0.0.0.0:8888
+    ports:
+      - "8888:8888"
+
+  eda-api:
+    image: quay.io/ansible/eda-server:main
+    environment: *common-env
+    command:
+      - /bin/bash
+      - -c
+      - >-
+        aap-eda-manage migrate
+        && aap-eda-manage create_initial_data
+        && scripts/create_superuser.sh
+        && aap-eda-manage runserver 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [ 'CMD', 'curl', '-q', 'http://localhost:8000/_healthz' ]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  eda-ws:
+    image: quay.io/ansible/eda-server:main
+    environment: *common-env
+    command:
+      - /bin/bash
+      - -c
+      - >-
+        aap-eda-manage runserver 0.0.0.0:8000
+    ports:
+      - "8001:8000"
+    depends_on:
+      eda-api:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  eda-scheduler:
+    image: quay.io/ansible/eda-server:main
+    environment: *common-env
+    command:
+      - /bin/bash
+      - -c
+      - >-
+        aap-eda-manage scheduler
+    depends_on:
+      eda-api:
+        condition: service_healthy
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  eda-default-worker:
+    image: quay.io/ansible/eda-server:main
+    environment: *common-env
+    command:
+      - /bin/bash
+      - -c
+      - >-
+        aap-eda-manage dispatcherd --worker-class DefaultWorker
+    depends_on:
+      eda-api:
+        condition: service_healthy
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  eda-activation-worker:
+    image: quay.io/ansible/eda-server:main
+    environment:
+      <<: *common-env
+      EDA_RULEBOOK_QUEUE_NAME: 'activation'
+      EDA_PODMAN_SOCKET_URL: tcp://podman:8888
+    command:
+      - /bin/bash
+      - -c
+      - >-
+        aap-eda-manage dispatcherd --worker-class ActivationWorker
+    depends_on:
+      eda-api:
+        condition: service_healthy
+      podman:
+        condition: service_started
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  eda-ui:
+    image: quay.io/ansible/eda-ui:main
+    environment: *common-env
+    ports:
+      - '8443:443'
+    volumes:
+      - './nginx/certs:/certs:z'
+      - './nginx/default.conf.template:/etc/nginx/templates/default.conf.template:z'
+    depends_on:
+      eda-api:
+        condition: service_healthy
+
+volumes:
+  postgres_data: {}
